@@ -6,7 +6,8 @@ Measurement rules (each one prevents a classic benchmarking mistake):
   kernel autotuning and memory-pool growth. We run one untimed warm-up per config.
 * **Synchronise before reading the clock.** CUDA kernels run asynchronously,
   so ``time.perf_counter()`` without ``torch.cuda.synchronize()`` measures how
-  long it took to *queue* the work, not to do it.
+  long it took to *queue* the work, not to do it. But sync only at the ends of
+  a timed region: syncing every step would perturb the decode loop itself.
 * **Fixed output length.** ``min_new_tokens == max_new_tokens`` stops early EOS
   from making one config look faster just because it wrote less.
 * **Same prompts everywhere**, built deterministically from a seed.
@@ -96,54 +97,49 @@ def _sync(torch_mod) -> None:
         torch_mod.cuda.synchronize()
 
 
-class _StepTimer:
-    """A StoppingCriteria that never stops generation; it only records when each decode step finishes.
-
-    generate() calls stopping criteria once per new token, so the first call
-    is the moment the first token exists (TTFT), and the last call is the end.
-    """
-
-    def __init__(self, torch_mod):
-        self.torch = torch_mod
-        self.times: list[float] = []
-
-    def __call__(self, input_ids, scores, **kwargs):
-        _sync(self.torch)
-        self.times.append(time.perf_counter())
-        return self.torch.zeros(input_ids.shape[0], dtype=self.torch.bool, device=input_ids.device)
-
-
 def bench_generate(
-    model, tok, label: str, batch_size: int, prompt_tokens: int, output_tokens: int, n_batches: int = 3, extra: dict | None = None
+    model, tok, label: str, batch_size: int, prompt_tokens: int, output_tokens: int, n_batches: int = 5, extra: dict | None = None
 ) -> BenchmarkResult:
-    """Static-batch generation benchmark: ``n_batches`` timed batches of ``batch_size`` prompts."""
+    """Static-batch generation benchmark: ``n_batches`` timed batches of ``batch_size`` prompts.
+
+    TTFT is measured with a *separate* ``max_new_tokens=1`` call on the same
+    batch (prefill plus one token). Hooking every decode step and calling
+    ``cuda.synchronize()`` inside it would stall the GPU pipeline and inflate
+    the very TPOT we want to measure, so the full-length run is timed with
+    only one sync at each end. TPOT is then ``(latency - TTFT) / (tokens - 1)``.
+
+    In a static batch every request in a batch shares the same timings, so
+    the percentiles are over *batches*; with the default 5 batches, p99 is
+    close to the max and should be read as "worst batch".
+    """
     import torch
-    from transformers import StoppingCriteriaList
 
     prompts = make_prompts(tok, batch_size * (n_batches + 1), prompt_tokens)
-    gen = {"max_new_tokens": output_tokens, "min_new_tokens": output_tokens, "do_sample": False, "pad_token_id": tok.pad_token_id}
+    gen = {"do_sample": False, "pad_token_id": tok.pad_token_id}
 
-    def run(batch_prompts):
+    def timed(batch_prompts, n_new: int) -> float:
         enc = tok(batch_prompts, return_tensors="pt", padding=True).to(model.device)
-        timer = _StepTimer(torch)
         _sync(torch)
         start = time.perf_counter()
         with torch.inference_mode():
-            model.generate(**enc, **gen, stopping_criteria=StoppingCriteriaList([timer]))
+            model.generate(**enc, **gen, max_new_tokens=n_new, min_new_tokens=n_new)
         _sync(torch)
-        end = time.perf_counter()
-        return start, timer.times[0], end
+        return time.perf_counter() - start
 
-    run(prompts[:batch_size])  # warm-up (not timed)
+    # Warm-up (not timed): both shapes, so compile / autotuning cost is paid up front.
+    timed(prompts[:batch_size], 1)
+    timed(prompts[:batch_size], output_tokens)
     if torch.cuda.is_available():
         torch.cuda.reset_peak_memory_stats()
     timings: list[RequestTiming] = []
     wall = 0.0
     for b in range(1, n_batches + 1):
-        start, first, end = run(prompts[b * batch_size : (b + 1) * batch_size])
-        wall += end - start
-        # In a static batch every request starts, gets its first token and finishes at the same time.
-        timings += [RequestTiming(start, first, end, output_tokens) for _ in range(batch_size)]
+        batch = prompts[b * batch_size : (b + 1) * batch_size]
+        ttft = timed(batch, 1)
+        latency = timed(batch, output_tokens)
+        wall += latency
+        # Express as timestamps relative to 0 so RequestTiming's properties apply unchanged.
+        timings += [RequestTiming(0.0, min(ttft, latency), latency, output_tokens) for _ in range(batch_size)]
     peak = torch.cuda.max_memory_allocated() / 2**30 if torch.cuda.is_available() else None
     return summarize(label, timings, wall, batch_size, prompt_tokens, peak, extra)
 
@@ -192,6 +188,16 @@ def bench_speculative(target_id: str, draft_id: str, prompts: list[str], output_
     draft = AutoModelForCausalLM.from_pretrained(draft_id, torch_dtype=torch.bfloat16, device_map="cuda").eval()
     gen = {"max_new_tokens": output_tokens, "do_sample": False}
 
+    # Count target-model forward passes: in assisted decoding each one verifies a
+    # whole block of draft tokens, so "new tokens per target forward" is the
+    # practical acceptance measure (1.0 = no draft token ever accepted).
+    calls = {"n": 0}
+
+    def count_forward(module, args, output):
+        calls["n"] += 1
+
+    target.register_forward_hook(count_forward)
+
     def timed(**kw):
         torch.cuda.synchronize()
         t = time.perf_counter()
@@ -208,12 +214,15 @@ def bench_speculative(target_id: str, draft_id: str, prompts: list[str], output_
             timed(**enc)
             timed(**enc, assistant_model=draft)
         base_out, base_t = timed(**enc)
+        calls["n"] = 0
         spec_out, spec_t = timed(**enc, assistant_model=draft)
         n_new = base_out.shape[1] - enc["input_ids"].shape[1]
+        spec_new = spec_out.shape[1] - enc["input_ids"].shape[1]
         results.append(
             {
                 "baseline_tok_s": n_new / base_t,
-                "speculative_tok_s": (spec_out.shape[1] - enc["input_ids"].shape[1]) / spec_t,
+                "speculative_tok_s": spec_new / spec_t,
+                "tokens_per_target_forward": spec_new / max(calls["n"], 1),
                 "identical_output": bool(torch.equal(base_out, spec_out)),
             }
         )
@@ -226,6 +235,7 @@ def bench_speculative(target_id: str, draft_id: str, prompts: list[str], output_
         "baseline_tok_s": base,
         "speculative_tok_s": spec,
         "speedup": spec / base,
+        "mean_tokens_per_target_forward": sum(r["tokens_per_target_forward"] for r in results) / len(results),
         "identical_outputs": sum(r["identical_output"] for r in results),
         "n_prompts": len(results),
         "per_prompt": results,

@@ -24,6 +24,20 @@ SPEC_PROMPTS = [
     "What is the difference between TCP and UDP? Give an example use case for each.",
     "Describe the water cycle to a ten-year-old.",
     "List the steps to deploy a containerized web app to Kubernetes.",
+    "Write a SQL query that returns the top 5 customers by total order value.",
+    "Explain gradient descent and why the learning rate matters.",
+    "Translate 'The weather is nice today, let's go for a walk' into French, Spanish and German.",
+    "Write a short story about a robot learning to paint, in about 150 words.",
+    "What are the pros and cons of microservices compared to a monolith?",
+    "Implement binary search in Python and explain its complexity.",
+    "Give a recipe for a simple vegetable curry with quantities.",
+    "Explain what a transformer's attention mechanism computes, step by step.",
+    "Write a bash one-liner that counts lines in all .py files in a directory tree.",
+    "Compare renewable and fossil energy sources in a short table.",
+    "Explain the CAP theorem with a real-world example.",
+    "Draft a polite email asking a colleague to review a pull request.",
+    "Describe how HTTPS keeps a connection secure.",
+    "Write a Python class for a bank account with deposit and withdraw methods.",
 ]
 
 
