@@ -57,4 +57,4 @@ serve() {  # $1 = model, $2 = label
 }
 serve Qwen/Qwen2.5-7B-Instruct bf16
 serve Qwen/Qwen2.5-7B-Instruct-AWQ awq
-echo "DONE $(date -u +%T)"; cat results/failures.txt 2>/dev/null
+echo "DONE $(date -u +%T)"; cat results/failures.txt 2>/dev/null || true
