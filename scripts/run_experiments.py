@@ -14,7 +14,7 @@ import argparse
 import json
 from pathlib import Path
 
-from infopt.hf_bench import HFConfig, bench_generate, bench_speculative, free, load_model, make_prompts, perplexity
+from infopt.hf_bench import HFConfig, bench_generate, bench_speculative, free, load_model, make_prompt_ids, perplexity
 from infopt.kv_cache import KNOWN, kv_bytes_per_token, kv_cache_gb, max_concurrent_sequences, weights_gb
 
 SPEC_PROMPTS = [
@@ -104,7 +104,7 @@ def exp_serve(args) -> dict:
     from infopt.serve_bench import run_concurrency_sweep
 
     tok = AutoTokenizer.from_pretrained(args.tokenizer or args.model)
-    prompts = make_prompts(tok, 64, 512)
+    prompts = make_prompt_ids(tok, 64, 512)  # token ids, so every request is exactly 512 tokens
     res = run_concurrency_sweep(args.base_url, args.model, prompts, [1, 4, 16, 64], max_tokens=128, prompt_tokens=512, label=args.label)
     return {"model": args.model, "label": args.label, "runs": [r.to_dict() for r in res]}
 

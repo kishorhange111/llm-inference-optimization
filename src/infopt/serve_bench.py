@@ -31,7 +31,7 @@ def parse_sse_line(line: str) -> str | None:
     return choice.get("text") or (choice.get("delta") or {}).get("content")
 
 
-async def _one_request(client, url: str, model: str, prompt: str, max_tokens: int) -> RequestTiming:
+async def _one_request(client, url: str, model: str, prompt: str | list[int], max_tokens: int) -> RequestTiming:
     body = {
         "model": model,
         "prompt": prompt,
@@ -43,21 +43,20 @@ async def _one_request(client, url: str, model: str, prompt: str, max_tokens: in
     }
     start = time.perf_counter()
     first = None
-    chunks = 0
     async with client.stream("POST", url, json=body, timeout=600) as resp:
         resp.raise_for_status()
         async for line in resp.aiter_lines():
-            if parse_sse_line(line) is not None:
-                chunks += 1
-                if first is None:
-                    first = time.perf_counter()
+            if first is None and parse_sse_line(line) is not None:
+                first = time.perf_counter()
     end = time.perf_counter()
-    # vLLM streams one chunk per generated token; with ignore_eos the count is exactly max_tokens.
-    return RequestTiming(start, first or end, end, max(chunks, 1))
+    # Count tokens from the request, not from stream chunks: a server may merge several
+    # tokens into one chunk (or send empty ones). With ignore_eos + min_tokens the output
+    # length is exactly max_tokens.
+    return RequestTiming(start, first or end, end, max_tokens)
 
 
 async def _run_level(
-    base_url: str, model: str, prompts: list[str], concurrency: int, max_tokens: int, transport=None
+    base_url: str, model: str, prompts: list, concurrency: int, max_tokens: int, transport=None
 ) -> tuple[list[RequestTiming], float]:
     import httpx
 
@@ -80,9 +79,13 @@ async def _run_level(
 
 
 def run_concurrency_sweep(
-    base_url: str, model: str, prompts: list[str], levels: list[int], max_tokens: int, prompt_tokens: int, label: str, transport=None
+    base_url: str, model: str, prompts: list, levels: list[int], max_tokens: int, prompt_tokens: int, label: str, transport=None
 ) -> list[BenchmarkResult]:
-    """Benchmark each concurrency level with the same prompt set."""
+    """Benchmark each concurrency level with the same prompt set.
+
+    ``prompts`` may be strings or lists of token ids (the OpenAI completions API
+    accepts both); token ids guarantee every request has exactly ``prompt_tokens`` tokens.
+    """
     results = []
     asyncio.run(_run_level(base_url, model, prompts[: max(levels)], max(levels), 16, transport))  # warm-up
     for c in levels:

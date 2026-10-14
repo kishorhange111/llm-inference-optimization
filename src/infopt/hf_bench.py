@@ -73,8 +73,13 @@ def load_model(model_id: str, cfg: HFConfig):
     return model, tok
 
 
-def make_prompts(tok, n: int, prompt_tokens: int, seed: int = 0) -> list[str]:
-    """Deterministic prompts of exactly ``prompt_tokens`` tokens, built from real text so attention patterns are realistic."""
+def make_prompt_ids(tok, n: int, prompt_tokens: int, seed: int = 0) -> list[list[int]]:
+    """Deterministic prompts of exactly ``prompt_tokens`` token ids, built from real text so attention patterns are realistic.
+
+    Kept as ids (not decoded text) because decode -> re-encode can change the
+    length by a token or two, which would make a static-cache compiled model
+    recompile in the middle of a timed run.
+    """
     import random
 
     base = (
@@ -87,8 +92,13 @@ def make_prompts(tok, n: int, prompt_tokens: int, seed: int = 0) -> list[str]:
     prompts = []
     for _ in range(n):
         start = rng.randint(0, len(ids) - prompt_tokens - 1)  # different offsets so prompts differ
-        prompts.append(tok.decode(ids[start : start + prompt_tokens]))
+        prompts.append(ids[start : start + prompt_tokens])
     return prompts
+
+
+def make_prompts(tok, n: int, prompt_tokens: int, seed: int = 0) -> list[str]:
+    """The same prompts as text, for HTTP servers that take strings (lengths may differ by a token after re-tokenisation)."""
+    return [tok.decode(ids) for ids in make_prompt_ids(tok, n, prompt_tokens, seed)]
 
 
 def _sync(torch_mod) -> None:
@@ -114,11 +124,13 @@ def bench_generate(
     """
     import torch
 
-    prompts = make_prompts(tok, batch_size * (n_batches + 1), prompt_tokens)
+    prompts = make_prompt_ids(tok, batch_size * (n_batches + 1), prompt_tokens)
     gen = {"do_sample": False, "pad_token_id": tok.pad_token_id}
 
     def timed(batch_prompts, n_new: int) -> float:
-        enc = tok(batch_prompts, return_tensors="pt", padding=True).to(model.device)
+        # Every prompt has exactly prompt_tokens ids, so no padding is needed.
+        ids = torch.tensor(batch_prompts, device=model.device)
+        enc = {"input_ids": ids, "attention_mask": torch.ones_like(ids)}
         _sync(torch)
         start = time.perf_counter()
         with torch.inference_mode():
@@ -186,6 +198,11 @@ def bench_speculative(target_id: str, draft_id: str, prompts: list[str], output_
     tok = AutoTokenizer.from_pretrained(target_id)
     target = AutoModelForCausalLM.from_pretrained(target_id, torch_dtype=torch.bfloat16, device_map="cuda").eval()
     draft = AutoModelForCausalLM.from_pretrained(draft_id, torch_dtype=torch.bfloat16, device_map="cuda").eval()
+    # Qwen2.5 checkpoints pad their embedding matrices to different sizes (152064 for 7B, 151936
+    # for 0.5B) although the tokenizer is the same. Assisted generation requires equal vocab sizes,
+    # so pad the draft's (the extra rows are never produced by the tokenizer).
+    if draft.config.vocab_size != target.config.vocab_size:
+        draft.resize_token_embeddings(target.config.vocab_size)
     gen = {"max_new_tokens": output_tokens, "do_sample": False}
 
     # Count target-model forward passes: in assisted decoding each one verifies a
@@ -243,9 +260,17 @@ def bench_speculative(target_id: str, draft_id: str, prompts: list[str], output_
 
 
 def free(model) -> None:
-    """Release GPU memory between configurations."""
+    """Release GPU memory between configurations.
+
+    The caller must also drop its own reference (``model = None``): a ``del``
+    inside this function only removes the local name. Moving the parameters to
+    the ``meta`` device frees their GPU storage even while references remain.
+    """
     import torch
 
-    del model
+    try:
+        model.to("meta")
+    except Exception:  # noqa: BLE001 - some quantised models refuse .to(); fall back to plain collection
+        pass
     gc.collect()
     torch.cuda.empty_cache()
