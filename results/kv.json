@@ -1,0 +1,44 @@
+{
+  "rows": [
+    {
+      "model": "Qwen2.5-0.5B",
+      "kv_kib_per_token_bf16": 12.0,
+      "kv_gib_32x4k_bf16": 1.5,
+      "weights_gib_bf16": 0.912696123123169,
+      "max_4k_seqs_a100_40gb_bf16": 748,
+      "max_4k_seqs_a100_40gb_4bit_weights_fp8_kv": 1526
+    },
+    {
+      "model": "Qwen2.5-1.5B",
+      "kv_kib_per_token_bf16": 28.0,
+      "kv_gib_32x4k_bf16": 3.5,
+      "weights_gib_bf16": 2.868473529815674,
+      "max_4k_seqs_a100_40gb_bf16": 302,
+      "max_4k_seqs_a100_40gb_4bit_weights_fp8_kv": 645
+    },
+    {
+      "model": "Qwen2.5-7B",
+      "kv_kib_per_token_bf16": 56.0,
+      "kv_gib_32x4k_bf16": 7.0,
+      "weights_gib_bf16": 14.193356037139893,
+      "max_4k_seqs_a100_40gb_bf16": 99,
+      "max_4k_seqs_a100_40gb_4bit_weights_fp8_kv": 296
+    },
+    {
+      "model": "Llama-3.1-8B",
+      "kv_kib_per_token_bf16": 128.0,
+      "kv_gib_32x4k_bf16": 16.0,
+      "weights_gib_bf16": 14.957040548324585,
+      "max_4k_seqs_a100_40gb_bf16": 42,
+      "max_4k_seqs_a100_40gb_4bit_weights_fp8_kv": 129
+    },
+    {
+      "model": "Llama-2-7B (no GQA)",
+      "kv_kib_per_token_bf16": 512.0,
+      "kv_gib_32x4k_bf16": 64.0,
+      "weights_gib_bf16": 12.55422830581665,
+      "max_4k_seqs_a100_40gb_bf16": 11,
+      "max_4k_seqs_a100_40gb_4bit_weights_fp8_kv": 32
+    }
+  ]
+}

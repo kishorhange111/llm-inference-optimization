@@ -11,7 +11,23 @@ Measured experiments on the main inference optimisations for Qwen2.5 models on o
 <!-- RESULTS:START -->
 ## Results
 
-_The Colab runs for this section are in progress. It will hold: bf16 vs. int8 vs. NF4 (memory, throughput at batch 1/8/32, WikiText-2 perplexity), eager vs. SDPA attention up to 8k-token prompts, compile + static cache at batch 1, speculative decoding speed-up and acceptance with a 0.5B draft model, KV-cache capacity tables, and a vLLM concurrency sweep (bf16 vs. AWQ 4-bit) with TTFT/TPOT percentiles._
+### KV-cache capacity planning (computed, `python scripts/run_experiments.py kv`)
+
+How many 4,096-token conversations fit in an A100-40GB once the weights are loaded, from each model's real layer count, KV heads and head size ([`results/kv.json`](results/kv.json)):
+
+| Model | KV cache per token (bf16) | 32 × 4k-token batch | Weights (bf16) | 4k sequences that fit, bf16 | with 4-bit weights + fp8 KV |
+|---|---:|---:|---:|---:|---:|
+| Qwen2.5-0.5B | 12 KiB | 1.5 GiB | 0.9 GiB | 748 | 1526 |
+| Qwen2.5-1.5B | 28 KiB | 3.5 GiB | 2.9 GiB | 302 | 645 |
+| Qwen2.5-7B | 56 KiB | 7.0 GiB | 14.2 GiB | 99 | 296 |
+| Llama-3.1-8B | 128 KiB | 16.0 GiB | 15.0 GiB | 42 | 129 |
+| Llama-2-7B (no GQA) | 512 KiB | 64.0 GiB | 12.6 GiB | 11 | 32 |
+
+Grouped-query attention is the biggest lever: Llama-2-7B (32 KV heads) needs 512 KiB of cache per token, Qwen2.5-7B (4 KV heads) needs 56 KiB, so the same GPU holds 9× more concurrent conversations of a 7B model. Quantising weights to 4 bits and the cache to fp8 roughly triples capacity again. This is why serving throughput is usually limited by KV-cache memory, not by compute.
+
+### GPU measurements
+
+The quantisation, attention, `torch.compile`, speculative decoding and vLLM experiments have not been run yet: the Colab runtime for them was not available, so this repository makes no speed claims. `scripts/colab_job.sh` runs all of them on one A100 runtime.
 <!-- RESULTS:END -->
 
 ## The metrics
