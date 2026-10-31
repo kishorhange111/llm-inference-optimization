@@ -98,17 +98,25 @@ python scripts/run_experiments.py serve --model Qwen/Qwen2.5-7B-Instruct --label
 ## Project layout
 
 ```
-src/infopt/
-├── kv_cache.py     KV-cache and weight memory math, capacity planning
-├── stats.py        TTFT / TPOT / throughput, percentiles
-├── hf_bench.py     model loading (bf16 / int8 / NF4, eager / SDPA, compile), benchmarks, perplexity, speculative decoding
-└── serve_bench.py  async streaming load generator for OpenAI-compatible servers
-scripts/            experiment runner, Colab job
+llm-inference-optimization/
+├── src/infopt/                 # the benchmarking library (installable package)
+│   ├── kv_cache.py             #   KV-cache and weight memory math, capacity planning
+│   ├── stats.py                #   TTFT / TPOT / throughput, percentiles
+│   ├── hf_bench.py             #   loading (bf16 / int8 / NF4, eager / SDPA, compile), benchmarks, perplexity, speculative decoding
+│   └── serve_bench.py          #   async streaming load generator for OpenAI-compatible servers
+├── scripts/                    # experiment runner, Colab job
+├── results/                    # raw result files behind every number above
+├── tests/                      # CPU-only tests
+├── .github/workflows/ci.yml    # lint + tests on every push and pull request
+├── Makefile                    # make install / install-dev / lint / test / kv
+└── pyproject.toml              # package metadata, dependencies, ruff + pytest config
 ```
 
 ## Tests
 
 `pytest` runs on CPU without downloads: the KV-cache formula against a hand calculation, GQA savings, capacity planning, timing statistics, SSE parsing, a concurrency sweep against a fake streaming server, and the offline benchmark and perplexity code on a tiny GPT-2.
+
+`make check` runs the same lint and test steps as CI, and `make help` lists the other commands. Optionally, `pip install pre-commit && pre-commit install` runs ruff before every commit.
 
 ## Limitations
 
