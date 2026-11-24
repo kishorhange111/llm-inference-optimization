@@ -1,0 +1,28 @@
+{
+  "scheduler": {
+    "continuous_output_tok_s": 281.6,
+    "static_output_tok_s": 138.55,
+    "continuous_ttft_p95_ms": 651.73,
+    "continuous_tpot_p95_ms": 10.87,
+    "batching_speedup": 2.033
+  },
+  "kv_cache": {
+    "qwen7b_4k_seqs_bf16": 99,
+    "qwen7b_4k_seqs_q4_fp8": 296,
+    "paged_memory_savings_ratio": 0.8766
+  },
+  "quantization": {
+    "int8_sqnr_db": 44.24,
+    "awq_sqnr_db": 21.55,
+    "awq_memory_reduction_pct": 74.02
+  },
+  "speculative": {
+    "acceptance_rate": 0.613,
+    "speedup": 2.61,
+    "mean_tokens_per_target_pass": 4.04
+  },
+  "prefix_cache": {
+    "hit_ratio": 0.9697,
+    "matched_tokens": 128
+  }
+}
