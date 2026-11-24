@@ -1,0 +1,102 @@
+{
+  "title": "LLM Inference Optimization — Serving & KV-Cache SLOs",
+  "uid": "infopt-llm-serving",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "10s",
+  "tags": ["llm", "inference", "vllm", "infopt"],
+  "panels": [
+    {
+      "id": 1,
+      "title": "TTFT Latency (p50 / p95 / p99)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(infopt_ttft_seconds_bucket[5m])) by (le, model))",
+          "legendFormat": "{{model}} p50"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(infopt_ttft_seconds_bucket[5m])) by (le, model))",
+          "legendFormat": "{{model}} p95"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum(rate(infopt_ttft_seconds_bucket[5m])) by (le, model))",
+          "legendFormat": "{{model}} p99"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "TPOT Inter-Token Latency (p50 / p95 / p99)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(infopt_tpot_seconds_bucket[5m])) by (le, model))",
+          "legendFormat": "{{model}} p50"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(infopt_tpot_seconds_bucket[5m])) by (le, model))",
+          "legendFormat": "{{model}} p95"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum(rate(infopt_tpot_seconds_bucket[5m])) by (le, model))",
+          "legendFormat": "{{model}} p99"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Token Throughput (tok/s)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "targets": [
+        {
+          "expr": "sum(rate(infopt_tokens_total[1m])) by (model, direction)",
+          "legendFormat": "{{model}} ({{direction}})"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "KV-Cache Block Utilization & Active Batch Size",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "targets": [
+        {
+          "expr": "infopt_kv_cache_utilization_ratio",
+          "legendFormat": "{{model}} KV util"
+        },
+        {
+          "expr": "infopt_active_batch_size",
+          "legendFormat": "{{model}} batch size"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Prefix & Semantic Cache Hit Ratio",
+      "type": "stat",
+      "gridPos": { "h": 6, "w": 12, "x": 0, "y": 16 },
+      "targets": [
+        {
+          "expr": "sum(rate(infopt_cache_events_total{outcome=\"hit\"}[5m])) by (cache_type) / clamp_min(sum(rate(infopt_cache_events_total[5m])) by (cache_type), 1e-9)",
+          "legendFormat": "{{cache_type}} hit rate"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Request Rate & Error Rate",
+      "type": "timeseries",
+      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 16 },
+      "targets": [
+        {
+          "expr": "sum(rate(infopt_requests_total[1m])) by (model, status)",
+          "legendFormat": "{{model}} ({{status}})"
+        }
+      ]
+    }
+  ]
+}
