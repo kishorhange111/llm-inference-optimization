@@ -1,0 +1,14 @@
+# Hugging Face TGI serving profile: Llama-3.1-8B-Instruct FP8 on 1x A100/H100
+engine: tgi
+model_id: meta-llama/Llama-3.1-8B-Instruct
+quantize: fp8
+max_input_tokens: 3072
+max_total_tokens: 4096
+max_batch_prefill_tokens: 4096
+max_batch_total_tokens: 32768
+waiting_served_ratio: 1.2
+cuda_graphs: [1, 2, 4, 8, 16, 32]
+slo_targets:
+  ttft_p95_ms: 400
+  tpot_p95_ms: 40
+  min_output_tok_s: 650
