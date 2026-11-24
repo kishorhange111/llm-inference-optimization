@@ -1,0 +1,82 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: infopt-vllm-serving
+  labels:
+    app: infopt-vllm
+    tier: inference
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: infopt-vllm
+  template:
+    metadata:
+      labels:
+        app: infopt-vllm
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: "/metrics"
+    spec:
+      nodeSelector:
+        accelerator: nvidia-a100
+      tolerations:
+        - key: nvidia.com/gpu
+          operator: Exists
+          effect: NoSchedule
+      containers:
+        - name: vllm
+          image: vllm/vllm-openai:v0.6.4
+          args:
+            - --model=Qwen/Qwen2.5-7B-Instruct-AWQ
+            - --quantization=awq
+            - --kv-cache-dtype=fp8
+            - --enable-prefix-caching
+            - --enable-chunked-prefill
+            - --max-model-len=4096
+            - --gpu-memory-utilization=0.90
+          ports:
+            - name: http
+              containerPort: 8000
+          resources:
+            requests:
+              cpu: "4"
+              memory: 24Gi
+              nvidia.com/gpu: "1"
+            limits:
+              cpu: "8"
+              memory: 32Gi
+              nvidia.com/gpu: "1"
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 45
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 90
+            periodSeconds: 20
+          volumeMounts:
+            - name: dshm
+              mountPath: /dev/shm
+      volumes:
+        - name: dshm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 8Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: infopt-vllm-svc
+spec:
+  selector:
+    app: infopt-vllm
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8000

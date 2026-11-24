@@ -1,0 +1,39 @@
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: infopt-vllm-hpa
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: infopt-vllm-serving
+  minReplicas: 2
+  maxReplicas: 8
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 30
+      policies:
+        - type: Pods
+          value: 2
+          periodSeconds: 60
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 120
+  metrics:
+    - type: Pods
+      pods:
+        metric:
+          name: infopt_kv_cache_utilization_ratio
+        target:
+          type: AverageValue
+          averageValue: "750m"
+    - type: Pods
+      pods:
+        metric:
+          name: infopt_active_batch_size
+        target:
+          type: AverageValue
+          averageValue: "32"

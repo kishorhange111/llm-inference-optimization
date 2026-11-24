@@ -1,0 +1,71 @@
+services:
+  router:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - INFOPT_DEFAULT_MODEL=qwen2.5-7b-awq
+      - INFOPT_ROUTING_STRATEGY=lowest_latency
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz')"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+
+  vllm:
+    image: vllm/vllm-openai:v0.6.4
+    profiles: ["vllm"]
+    ports:
+      - "8001:8000"
+    ipc: host
+    command:
+      - --model=Qwen/Qwen2.5-7B-Instruct-AWQ
+      - --quantization=awq
+      - --kv-cache-dtype=fp8
+      - --enable-prefix-caching
+      - --max-model-len=4096
+      - --gpu-memory-utilization=0.90
+      - --max-num-seqs=64
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  tgi:
+    image: ghcr.io/huggingface/text-generation-inference:2.4
+    profiles: ["tgi"]
+    ports:
+      - "8002:80"
+    shm_size: 2gb
+    command:
+      - --model-id=meta-llama/Llama-3.1-8B-Instruct
+      - --quantize=fp8
+      - --max-input-tokens=3072
+      - --max-total-tokens=4096
+      - --max-batch-prefill-tokens=4096
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    profiles: ["observability"]
+    ports:
+      - "9090:9090"
+
+  grafana:
+    image: grafana/grafana:11.3.0
+    profiles: ["observability"]
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./grafana/llm-serving-dashboard.json:/var/lib/grafana/dashboards/llm-serving.json:ro
